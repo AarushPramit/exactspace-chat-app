@@ -117,60 +117,6 @@ const pinnedMessages = displayMessages.filter(
   (message) => message.pinned
 );
 
-
-  async function sendMessage(event, attachments = []) {
-  event.preventDefault();
-
-  const text = draft.trim();
-
-  if (!socketRef.current?.connected) {
-    setConnectionError("Server disconnected. Your draft is still here.");
-    return false;
-  }
-
-  if (attachments.length > 0) {
-    setConnectionError(
-      "Real-time attachments are not connected yet. Remove them to send text."
-    );
-    return false;
-  }
-
-  if (replyTo) {
-    setConnectionError(
-      "Real-time replies are not connected yet. Cancel the reply to send text."
-    );
-    return false;
-  }
-
-  if (!text) return false;
-
-  setConnectionError("");
-
-  return new Promise((resolve) => {
-    socketRef.current
-      .timeout(5000)
-      .emit(
-        "message:send",
-        { text, clientId },
-        (error, result) => {
-          if (error || !result?.ok) {
-            setConnectionError(
-              result?.error ||
-                "Delivery was not confirmed. Check the conversation before retrying."
-            );
-            resolve(false);
-            return;
-          }
-
-          setDraft("");
-          setSearch("");
-          setReplyTo(null);
-          resolve(true);
-        }
-      );
-  });
-}
-
   useEffect(() => {
     const list = messageListRef.current;
     if (list) list.scrollTop = list.scrollHeight;

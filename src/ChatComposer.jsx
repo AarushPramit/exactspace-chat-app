@@ -25,7 +25,12 @@ const STICKERS = ["HELLO!", "THANK YOU", "NICE!", "WOW!", "ON IT", "BRB"];
 const MAX_SIZE = 20 * 1024 * 1024;
 const MAX_FILES = 6;
 
-export default function ChatComposer({ value, onChange, onSend }) {
+export default function ChatComposer({
+  value,
+  onChange,
+  onSend,
+  users = [],
+}) {
   const [sending, setSending] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [attachments, setAttachments] = useState([]);
@@ -34,6 +39,8 @@ export default function ChatComposer({ value, onChange, onSend }) {
   const [recordingState, setRecordingState] = useState("idle");
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
+  const [mentionQuery, setMentionQuery] = useState(null);
+  const [mentionStart, setMentionStart] = useState(-1);
 
   const composerRef = useRef(null);
   const textareaRef = useRef(null);
@@ -113,6 +120,40 @@ export default function ChatComposer({ value, onChange, onSend }) {
     document.removeEventListener("pointerdown", handleOutsideClick);
   };
 }, [expanded, pickerOpen, busy]);
+
+function handleDraftChange(event) {
+  const nextValue = event.target.value;
+  const cursor = event.target.selectionStart;
+
+  onChange(nextValue);
+
+  const beforeCursor = nextValue.slice(0, cursor);
+  const match = beforeCursor.match(/(^|\s)@([a-zA-Z]*)$/);
+
+  if (match) {
+    setMentionQuery(match[2]);
+    setMentionStart(cursor - match[2].length - 1);
+  } else {
+    setMentionQuery(null);
+    setMentionStart(-1);
+  }
+}
+
+function selectMention(name) {
+  const textarea = textareaRef.current;
+  const cursor = textarea?.selectionStart ?? value.length;
+
+  const before = value.slice(0, mentionStart);
+  const after = value.slice(cursor);
+
+  const nextValue = `${before}@${name} ${after}`;
+
+  onChange(nextValue);
+  setMentionQuery(null);
+  setMentionStart(-1);
+
+  restoreFocus(before.length + name.length + 2);
+}
 
   function rememberSelection() {
     const textarea = textareaRef.current;
@@ -393,11 +434,41 @@ export default function ChatComposer({ value, onChange, onSend }) {
               Your message
             </label>
 
+{mentionQuery !== null && (
+  <div className="mention-suggestions" role="listbox" aria-label="Mention users">
+    {users
+      .filter((name) =>
+        name.toLowerCase().startsWith(mentionQuery.toLowerCase())
+      )
+      .map((name) => (
+        <button
+          key={name}
+          type="button"
+          className="mention-option"
+          role="option"
+          aria-selected="false"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => selectMention(name)}
+        >
+          <span className="mention-avatar">{name[0]}</span>
+          <span>{name}</span>
+        </button>
+      ))}
+
+    {users.filter((name) =>
+      name.toLowerCase().startsWith(mentionQuery.toLowerCase())
+    ).length === 0 && (
+      <p className="mention-empty">No users found</p>
+    )}
+  </div>
+)}
+
+
             <textarea
               ref={textareaRef}
               id="chat-draft"
               value={value}
-              onChange={(event) => onChange(event.target.value)}
+              onChange={handleDraftChange}
               onSelect={rememberSelection}
               placeholder="Write a message..."
               onKeyDown={(event) => {
