@@ -1,0 +1,348 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  MessageCircle,
+  Search,
+  Pin,
+  X,
+  ArrowLeft,
+} from "lucide-react";
+
+import ChatSidebar from "./ChatSidebar";
+import ChatComposer from "./ChatComposer";
+import ChatMessage from "./ChatMessage";
+import NavigationRail from "./NavigationRail";
+import WorkspaceTopbar from "./WorkspaceTopbar";
+import "./App.css";
+
+const users = ["Alan", "Bob", "Carol", "Dean", "Elin"];
+
+export default function App() {
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState("open");
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [search, setSearch] = useState("");
+  const [assignmentMode, setAssignmentMode] = useState(true);
+  const [replyTo, setReplyTo] = useState(null);
+
+  const messageListRef = useRef(null);
+
+  const query = search.trim().toLowerCase();
+
+  const visibleMessages = messages.filter((message) => {
+    const name = message.isOwn ? "You" : message.name;
+
+    return (
+      message.text.toLowerCase().includes(query) ||
+      name.toLowerCase().includes(query)
+    );
+  });
+
+  const pinnedMessages = messages.filter((message) => message.pinned);
+
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [messages.length]);
+
+  function createMessage(text, extra = {}) {
+    return {
+      id: crypto.randomUUID(),
+      name: assignmentMode
+        ? users[Math.floor(Math.random() * users.length)]
+        : "You",
+      isOwn: !assignmentMode,
+      text,
+      likes: 0,
+      reactions: {},
+      pinned: false,
+      reported: false,
+      ...extra,
+    };
+  }
+
+  function sendMessage(event, attachments = []) {
+  event.preventDefault();
+
+  const text = draft.trim();
+  if (!text && attachments.length === 0) return;
+
+  const message = createMessage(text, {
+    attachments,
+    replyTo: replyTo
+      ? {
+          id: replyTo.id,
+          name: replyTo.isOwn ? "You" : replyTo.name,
+          text: replyTo.text || "Attachment",
+        }
+      : null,
+  });
+
+  setMessages((current) => [...current, message]);
+  setDraft("");
+  setSearch("");
+  setReplyTo(null);
+}
+
+  function likeMessage(id) {
+  setMessages((current) =>
+    current.map((message) =>
+      message.id === id
+        ? { ...message, liked: !message.liked }
+        : message
+    )
+  );
+}
+
+  function reactToMessage(id, emoji) {
+  if (emoji === "👍") {
+    likeMessage(id);
+    return;
+  }
+
+  setMessages((current) =>
+    current.map((message) => {
+      if (message.id !== id) return message;
+
+      const reactions = { ...message.reactions };
+
+      if (reactions[emoji]) {
+        delete reactions[emoji];
+      } else {
+        reactions[emoji] = 1;
+      }
+
+      return { ...message, reactions };
+    })
+  );
+}
+
+  function startReply(message) {
+    setReplyTo(message);
+
+    // Open the composer if it is collapsed.
+    requestAnimationFrame(() => {
+      const opener = document.querySelector(".composer-opener");
+
+      if (opener) {
+        opener.click();
+      } else {
+        document.getElementById("chat-draft")?.focus();
+      }
+    });
+  }
+
+  function forwardMessage(original) {
+  const forwarded = createMessage(original.text, {
+    forwarded: true,
+    attachments: original.attachments ?? [],
+  });
+
+  setMessages((current) => [...current, forwarded]);
+  setSearch("");
+}
+
+  function togglePin(id) {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id
+          ? { ...message, pinned: !message.pinned }
+          : message
+      )
+    );
+  }
+
+  function reportMessage(id, reason) {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id
+          ? {
+              ...message,
+              reported: true,
+              reportReason: reason,
+            }
+          : message
+      )
+    );
+  }
+
+  return (
+    <main className="app-shell">
+  <WorkspaceTopbar
+    view={workspaceView}
+    onViewChange={setWorkspaceView}
+  />
+
+  {workspaceView === "open" && (
+  <NavigationRail onOpenChat={() => setMobileChatOpen(true)} />
+)}
+
+  <div
+    className={`workspace ${
+  mobileChatOpen ? "mobile-chat-open" : "mobile-menu-open"
+}`}
+    style={workspaceView !== "open" ? { display: "none" } : undefined}
+  >
+        <div className="sidebar-container">
+  <ChatSidebar
+    search={search}
+    setSearch={setSearch}
+    messages={messages}
+  />
+
+  <button
+    type="button"
+    className="mobile-chat-entry"
+    onClick={() => setMobileChatOpen(true)}
+  >
+    <MessageCircle size={24} aria-hidden="true" />
+
+    <span>
+      <strong>Team chat</strong>
+      <small>Alan, Bob, Carol, Dean & Elin</small>
+    </span>
+
+    <span aria-hidden="true">›</span>
+  </button>
+</div>
+
+        <section className="chat-panel" aria-label="Team chat">
+          <header className="chat-header">
+            <button
+  type="button"
+  className="mobile-back-button"
+  onClick={() => {
+    setMobileChatOpen(false);
+    setSearch("");
+  }}
+  aria-label="Back to chats"
+>
+  <ArrowLeft size={20} aria-hidden="true" />
+</button>
+            <div className="team-icon">
+              <MessageCircle size={24} aria-hidden="true" />
+            </div>
+
+            <div className="chat-heading-copy">
+              <h1>Team chat</h1>
+              <p className="font-heading">
+                {assignmentMode
+                  ? "Random sender names · Assignment mode"
+                  : "Your messages appear as You"}
+              </p>
+            </div>
+
+            <label className="assignment-toggle">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={assignmentMode}
+                onChange={(event) =>
+                  setAssignmentMode(event.target.checked)
+                }
+              />
+              <span>Assignment mode</span>
+            </label>
+          </header>
+
+          {pinnedMessages.length > 0 && (
+            <details className="pinned-panel">
+              <summary>
+                <Pin size={14} aria-hidden="true" />
+                {pinnedMessages.length} pinned
+                {pinnedMessages.length === 1 ? " message" : " messages"}
+              </summary>
+
+              <ul>
+                {pinnedMessages.map((message) => (
+                  <li key={message.id}>
+                    <div>
+                      <strong>
+                        {message.isOwn ? "You" : message.name}
+                      </strong>
+                      <p>{message.text}</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="message-action"
+                      onClick={() => togglePin(message.id)}
+                      aria-label="Unpin message"
+                    >
+                      <X size={16} aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          <div
+            ref={messageListRef}
+            className="message-list"
+            role="log"
+            aria-label="Messages"
+            aria-live="polite"
+            aria-relevant="additions"
+          >
+            {messages.length === 0 && (
+              <div className="empty-state">
+                <MessageCircle size={36} aria-hidden="true" />
+                <h2>A conversation starts with hello.</h2>
+                <p>Send the first message to get things going.</p>
+              </div>
+            )}
+
+            {messages.length > 0 && visibleMessages.length === 0 && (
+              <div className="empty-state">
+                <Search size={32} aria-hidden="true" />
+                <h2>No matching messages</h2>
+                <p>Try another word or a sender’s name.</p>
+              </div>
+            )}
+
+            {visibleMessages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                assignmentMode={assignmentMode}
+                onLike={likeMessage}
+                onReact={reactToMessage}
+                onReply={startReply}
+                onForward={forwardMessage}
+                onPin={togglePin}
+                onReport={reportMessage}
+              />
+            ))}
+          </div>
+
+          {replyTo && (
+            <div className="reply-draft" role="status">
+              <div>
+                <strong>
+                  Replying to {replyTo.isOwn ? "You" : replyTo.name}
+                </strong>
+                <p>{replyTo.text}</p>
+              </div>
+
+              <button
+                type="button"
+                className="message-action"
+                onClick={() => setReplyTo(null)}
+                aria-label="Cancel reply"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
+          <ChatComposer
+            value={draft}
+            onChange={setDraft}
+            onSend={sendMessage}
+          />
+        </section>
+      </div>
+    </main>
+  );
+}
