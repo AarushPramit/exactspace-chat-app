@@ -26,6 +26,7 @@ const MAX_SIZE = 20 * 1024 * 1024;
 const MAX_FILES = 6;
 
 export default function ChatComposer({ value, onChange, onSend }) {
+  const [sending, setSending] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -44,7 +45,7 @@ export default function ChatComposer({ value, onChange, onSend }) {
   const selectionRef = useRef({ start: 0, end: 0 });
 
   const reduceMotion = useReducedMotion();
-  const busy = recordingState !== "idle";
+  const busy = recordingState !== "idle" || sending;
   const canSend = Boolean(value.trim() || attachments.length);
 
   useEffect(() => {
@@ -300,15 +301,27 @@ export default function ChatComposer({ value, onChange, onSend }) {
     requestAnimationFrame(() => openerRef.current?.focus());
   }
 
-  function submit(event) {
-    event.preventDefault();
-    if (!canSend || busy) return;
+  async function submit(event) {
+  event.preventDefault();
 
-    onSend(event, attachments);
+  if (!canSend || busy) return;
+
+  setSending(true);
+
+  try {
+    const sent = await onSend(event, attachments);
+
+    if (sent === false) return;
+
     setAttachments([]);
     setError("");
     collapse();
+  } catch {
+    setError("Could not send. Your draft has been preserved.");
+  } finally {
+    setSending(false);
   }
+}
 
   const timeLabel =
     `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;

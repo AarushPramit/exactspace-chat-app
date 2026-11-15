@@ -7,6 +7,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 
+import { io } from "socket.io-client";
 import ChatSidebar from "./ChatSidebar";
 import ChatComposer from "./ChatComposer";
 import ChatMessage from "./ChatMessage";
@@ -25,20 +26,150 @@ export default function App() {
   const [assignmentMode, setAssignmentMode] = useState(true);
   const [replyTo, setReplyTo] = useState(null);
 
+  const [connected, setConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState("");
+
   const messageListRef = useRef(null);
+  const socketRef = useRef(null);
 
-  const query = search.trim().toLowerCase();
+  const [clientId] = useState(() => {
+    let id = sessionStorage.getItem("chat-client-id");
 
-  const visibleMessages = messages.filter((message) => {
-    const name = message.isOwn ? "You" : message.name;
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem("chat-client-id", id);
+    }
 
-    return (
-      message.text.toLowerCase().includes(query) ||
-      name.toLowerCase().includes(query)
+    return id;
+  });
+
+
+useEffect(() => {
+  const socket = io("http://127.0.0.1:3001", {
+    reconnection: true,
+  });
+
+  socketRef.current = socket;
+
+  socket.on("connect", () => {
+    setConnected(true);
+    setConnectionError("");
+    console.log("Socket connected:", socket.id);
+  });
+
+  socket.on("disconnect", () => {
+    setConnected(false);
+  });
+
+  socket.on("connect_error", (error) => {
+    setConnected(false);
+    setConnectionError(error.message);
+    console.error("Socket connection error:", error);
+  });
+
+  socket.on("messages:history", (history) => {
+    setMessages(
+      history.map((message) => ({
+        ...message,
+        isOwn: message.senderId === clientId,
+      }))
     );
   });
 
-  const pinnedMessages = messages.filter((message) => message.pinned);
+  socket.on("message:created", (message) => {
+    setMessages((current) => {
+      if (current.some((item) => item.id === message.id)) {
+        return current;
+      }
+
+      return [
+        ...current,
+        {
+          ...message,
+          isOwn: message.senderId === clientId,
+        },
+      ];
+    });
+  });
+
+  return () => {
+    socket.disconnect();
+    socketRef.current = null;
+  };
+}, [clientId]);
+
+
+  
+const query = search.trim().toLowerCase();
+
+const displayMessages = messages;
+
+const visibleMessages = displayMessages.filter((message) => {
+  const name = message.isOwn ? "You" : message.name;
+
+  return (
+    message.text.toLowerCase().includes(query) ||
+    name.toLowerCase().includes(query)
+  );
+});
+
+const pinnedMessages = displayMessages.filter(
+  (message) => message.pinned
+);
+
+
+  async function sendMessage(event, attachments = []) {
+  event.preventDefault();
+
+  const text = draft.trim();
+
+  if (!socketRef.current?.connected) {
+    setConnectionError("Server disconnected. Your draft is still here.");
+    return false;
+  }
+
+  if (attachments.length > 0) {
+    setConnectionError(
+      "Real-time attachments are not connected yet. Remove them to send text."
+    );
+    return false;
+  }
+
+  if (replyTo) {
+    setConnectionError(
+      "Real-time replies are not connected yet. Cancel the reply to send text."
+    );
+    return false;
+  }
+
+  if (!text) return false;
+
+  setConnectionError("");
+
+  return new Promise((resolve) => {
+    socketRef.current
+      .timeout(5000)
+      .emit(
+        "message:send",
+        { text, clientId },
+        (error, result) => {
+          if (error || !result?.ok) {
+            setConnectionError(
+              result?.error ||
+                "Delivery was not confirmed. Check the conversation before retrying."
+            );
+            resolve(false);
+            return;
+          }
+
+          setDraft("");
+          setSearch("");
+          setReplyTo(null);
+          resolve(true);
+        }
+      );
+  });
+}
 
   useEffect(() => {
     const list = messageListRef.current;
@@ -61,29 +192,58 @@ export default function App() {
     };
   }
 
-  function sendMessage(event, attachments = []) {
+async function sendMessage(event, attachments = []) {
   event.preventDefault();
 
   const text = draft.trim();
-  if (!text && attachments.length === 0) return;
 
-  const message = createMessage(text, {
-    attachments,
-    replyTo: replyTo
-      ? {
-          id: replyTo.id,
-          name: replyTo.isOwn ? "You" : replyTo.name,
-          text: replyTo.text || "Attachment",
+  if (!socketRef.current?.connected) {
+    setConnectionError("Server disconnected. Your draft is still here.");
+    return false;
+  }
+
+  if (attachments.length > 0) {
+    setConnectionError(
+      "Real-time attachments are not connected yet. Remove them to send text."
+    );
+    return false;
+  }
+
+  if (replyTo) {
+    setConnectionError(
+      "Real-time replies are not connected yet. Cancel the reply to send text."
+    );
+    return false;
+  }
+
+  if (!text) return false;
+
+  setConnectionError("");
+
+  return new Promise((resolve) => {
+    socketRef.current
+      .timeout(5000)
+      .emit(
+        "message:send",
+        { text, clientId },
+        (error, result) => {
+          if (error || !result?.ok) {
+            setConnectionError(
+              result?.error ||
+                "Delivery was not confirmed. Check the conversation before retrying."
+            );
+            resolve(false);
+            return;
+          }
+
+          setDraft("");
+          setSearch("");
+          setReplyTo(null);
+          resolve(true);
         }
-      : null,
+      );
   });
-
-  setMessages((current) => [...current, message]);
-  setDraft("");
-  setSearch("");
-  setReplyTo(null);
 }
-
   function likeMessage(id) {
   setMessages((current) =>
     current.map((message) =>
@@ -244,6 +404,13 @@ export default function App() {
               <span>Assignment mode</span>
             </label>
           </header>
+
+           <div className="connection-status" role="status">
+            {connected ? "● Connected" : "○ Connecting…"}
+            {connectionError && (
+              <span> — {connectionError}</span>
+            )}
+          </div>
 
           {pinnedMessages.length > 0 && (
             <details className="pinned-panel">

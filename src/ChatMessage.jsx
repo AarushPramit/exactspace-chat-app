@@ -28,6 +28,7 @@ import {
 
 export default function ChatMessage({
   message,
+  assignmentMode,
   onLike,
   onReact,
   onReply,
@@ -40,7 +41,11 @@ export default function ChatMessage({
   const [forwardOpen, setForwardOpen] = useState(false);
   const [reason, setReason] = useState("");
 
-  const displayName = message.isOwn ? "You" : message.name;
+  const displayName = assignmentMode
+  ? message.name
+  : message.isOwn
+    ? "You"
+    : message.name;
 
   function submitReport(event) {
     event.preventDefault();
